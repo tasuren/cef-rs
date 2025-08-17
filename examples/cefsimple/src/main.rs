@@ -271,6 +271,22 @@ fn main() {
         loader
     };
 
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use objc2::{rc::Retained, runtime::*, *};
+        use objc2_app_kit::NSApp;
+
+        use crate::mac::SimpleApplication;
+
+        // Initialize mac application instance.
+        let _: Retained<AnyObject> = msg_send![SimpleApplication::class(), sharedApplication];
+
+        // If there was an invocation to NSApp prior to here, then the NSApp
+        // will not be a SimpleApplication. This ensure that this doesn't happen.
+        let mtm = MainThreadMarker::new().unwrap();
+        assert!(NSApp(mtm).isKindOfClass(SimpleApplication::class()));
+    };
+
     let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
 
     let args = Args::new();
@@ -319,4 +335,41 @@ fn main() {
     assert!(window.has_one_ref());
 
     shutdown();
+}
+
+/// Partial port of `cefsimple_mac.mm`.
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::cell::Cell;
+
+    pub use cef::sys::application_mac::*;
+    use objc2::{DefinedClass, define_class, runtime::Bool};
+    use objc2_app_kit::NSApplication;
+
+    pub struct Ivars {
+        handling_send_event: Cell<Bool>,
+    }
+
+    define_class!(
+        // Provide the CefAppProtocol implementation required by CEF.
+        #[unsafe(super(NSApplication))]
+        #[ivars = Ivars]
+        pub struct SimpleApplication;
+
+        unsafe impl CrAppControlProtocol for SimpleApplication {
+            #[unsafe(method(setHandlingSendEvent:))]
+            unsafe fn set_handling_send_event(&self, handling_send_event: Bool) {
+                self.ivars().handling_send_event.set(handling_send_event);
+            }
+        }
+
+        unsafe impl CrAppProtocol for SimpleApplication {
+            #[unsafe(method(isHandlingSendEvent))]
+            unsafe fn is_handling_send_event(&self) -> Bool {
+                self.ivars().handling_send_event.get()
+            }
+        }
+
+        unsafe impl CefAppProtocol for SimpleApplication {}
+    );
 }

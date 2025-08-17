@@ -25,3 +25,5 @@ cef-dll-sys.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 plist.workspace = true
 serde.workspace = true
+objc2.workspace = true
+objc2-app-kit = { version = "0.3.1", features = ["NSApplication", "NSResponder"] }
