@@ -19,6 +19,9 @@ sandbox = []
 [package.metadata.docs.rs]
 features = ["dox"]
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+
 [build-dependencies]
 anyhow.workspace = true
 cmake.workspace = true

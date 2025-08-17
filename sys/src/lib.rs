@@ -10,6 +10,9 @@
 mod bindings;
 pub use bindings::*;
 
+#[cfg(target_os = "macos")]
+pub mod application_mac;
+
 #[cfg(target_os = "windows")]
 impl Default for HWND {
     fn default() -> Self {
