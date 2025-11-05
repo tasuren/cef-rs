@@ -76,7 +76,7 @@ mod mac {
     }
 
     // See https://bitbucket.org/chromiumembedded/cef/wiki/GeneralUsage.md#markdown-header-macos
-    fn bundle(app_path: &Path) {
+    fn bundle(app_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let example_path = PathBuf::from(app_path);
         let main_app_path = create_app(
             app_path,
@@ -98,6 +98,36 @@ mod mac {
                 true,
             );
         });
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        copy_directory(
+            &manifest_dir.join("src/mac/English.lproj"),
+            &main_app_path.join(RESOURCES_PATH).join("English.lproj"),
+        );
+        compile_xib(
+            &manifest_dir.join("src/mac/MainMenu.xib"),
+            &main_app_path
+                .join(RESOURCES_PATH)
+                .join("English.lproj/MainMenu.nib"),
+        )?;
+
+        Ok(())
+    }
+
+    fn compile_xib(src: &Path, dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let status = Command::new("ibtool")
+            .arg("--compile")
+            .arg(dst)
+            .arg(src)
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()?;
+
+        if !status.success() {
+            std::process::exit(1);
+        }
+
+        Ok(())
     }
 
     fn create_info_plist(
@@ -168,7 +198,7 @@ mod mac {
         let app_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug");
         run_command(&["build", "--bin", "cefsimple"])?;
         run_command(&["build", "--bin", "cefsimple_helper"])?;
-        bundle(&app_path);
+        bundle(&app_path)?;
         Ok(())
     }
 }
