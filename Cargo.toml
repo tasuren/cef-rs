@@ -29,6 +29,7 @@ download-cef = { version = "2.2", path = "download-cef" }
 
 anyhow = "1"
 ash = "0.38"
+base64 = "0.22.1"
 bindgen = "0.72"
 clap = { version = "4", features = ["derive"] }
 cmake = "0.1.52"
@@ -42,7 +43,9 @@ metal = "0.32"
 objc = "0.2"
 objc2 = "0.6.3"
 objc2-app-kit = { version = "0.3.2", default-features = false }
+objc2-foundation = { version = "0.3.2", default-features = false }
 objc2-io-surface = "0.3"
+percent-encoding = "2.3.2"
 plist = "1"
 proc-macro2 = "1"
 quote = "1"

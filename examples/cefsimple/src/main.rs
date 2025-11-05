@@ -1,15 +1,20 @@
+mod simple_handler;
+
 use cef::{args::Args, rc::*, *};
 use std::sync::{Arc, Mutex};
 
+use crate::simple_handler::SimpleHandler;
+
 wrap_app! {
     struct DemoApp {
+        simple_handler: Arc<Mutex<SimpleHandler>>,
         window: Arc<Mutex<Option<Window>>>,
     }
 
     impl App {
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
             Some(DemoBrowserProcessHandler::new(
-                self.window.clone(),
+                self.simple_handler.clone(), self.window.clone(),
             ))
         }
     }
@@ -17,6 +22,7 @@ wrap_app! {
 
 wrap_browser_process_handler! {
     struct DemoBrowserProcessHandler {
+        simple_handler: Arc<Mutex<SimpleHandler>>,
         window: Arc<Mutex<Option<Window>>>,
     }
 
@@ -24,7 +30,12 @@ wrap_browser_process_handler! {
         // The real lifespan of cef starts from `on_context_initialized`, so all the cef objects should be manipulated after that.
         fn on_context_initialized(&self) {
             println!("cef context intiialized");
-            let mut client = DemoClient::new();
+
+            let display_handler = DemoDisplayHandler::new(self.simple_handler.clone());
+            let life_span_handler = DemoLifeSpanHandler::new(self.simple_handler.clone());
+            let load_handler =  DemoLoadHandler::new(self.simple_handler.clone());
+
+            let mut client = DemoClient::new(display_handler, life_span_handler, load_handler);
             let url = CefString::from("https://www.google.com");
 
             let browser_view = browser_view_create(
@@ -47,9 +58,87 @@ wrap_browser_process_handler! {
     }
 }
 
+wrap_life_span_handler! {
+    struct DemoLifeSpanHandler {
+        simple_handler: Arc<Mutex<SimpleHandler>>
+    }
+
+    impl LifeSpanHandler {
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            self.simple_handler.lock().unwrap().on_after_created(browser);
+        }
+
+        fn do_close(&self, browser: Option<&mut Browser>) -> ::std::os::raw::c_int {
+            self.simple_handler.lock().unwrap().do_close(browser) as _
+        }
+
+        fn on_before_close(&self, browser: Option<&mut Browser>) {
+            self.simple_handler.lock().unwrap().on_before_close(browser);
+        }
+    }
+}
+
+wrap_load_handler! {
+    struct DemoLoadHandler {
+        simple_handler: Arc<Mutex<SimpleHandler>>
+    }
+
+    impl LoadHandler {
+        fn on_load_error(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            error_code: Errorcode,
+            error_text: Option<&CefString>,
+            failed_url: Option<&CefString>,
+        ) {
+            self.simple_handler.lock().unwrap().on_load_error(
+                browser,
+                frame,
+                error_code,
+                error_text,
+                failed_url
+            )
+        }
+    }
+}
+
+wrap_display_handler! {
+    struct DemoDisplayHandler {
+        simple_handler: Arc<Mutex<SimpleHandler>>
+    }
+
+    impl DisplayHandler {
+        fn on_title_change(
+            &self,
+            browser: Option<&mut Browser>,
+            title: Option<&CefString>
+        ) {
+            self.simple_handler.lock().unwrap().on_title_change(browser, title);
+        }
+    }
+}
+
 wrap_client! {
-    struct DemoClient;
-    impl Client {}
+    struct DemoClient {
+        display_handler: DisplayHandler,
+        life_span_handler: LifeSpanHandler,
+        load_handler: LoadHandler
+    }
+
+    impl Client {
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(self.display_handler.clone())
+        }
+
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(self.life_span_handler.clone())
+        }
+
+        fn load_handler(&self) -> Option<LoadHandler> {
+            Some(self.load_handler.clone())
+        }
+    }
 }
 
 wrap_window_delegate! {
@@ -148,7 +237,8 @@ fn main() {
     let is_browser_process = cmd.has_switch(Some(&switch)) != 1;
 
     let window = Arc::new(Mutex::new(None));
-    let mut app = DemoApp::new(window.clone());
+    let simple_handler = Arc::new(Mutex::new(SimpleHandler::new(false)));
+    let mut app = DemoApp::new(simple_handler.clone(), window.clone());
 
     let ret = execute_process(
         Some(args.as_main_args()),
@@ -180,6 +270,31 @@ fn main() {
         1
     );
 
+    #[cfg(target_os = "macos")]
+    let _delegate = {
+        use objc2::{runtime::ProtocolObject, sel};
+        use objc2_app_kit::NSApp;
+        use objc2_foundation::NSObjectNSThreadPerformAdditions;
+
+        use crate::application::SimpleAppDelegate;
+
+        let mtm = objc2::MainThreadMarker::new().unwrap();
+
+        let delegate = SimpleAppDelegate::new(mtm, simple_handler);
+        NSApp(mtm).setDelegate(Some(&ProtocolObject::from_retained(delegate.clone())));
+
+        unsafe {
+            delegate.performSelectorOnMainThread_withObject_waitUntilDone(
+                sel!(createApplication:),
+                None,
+                false,
+            );
+        }
+
+        // The delegate property of `NSApplication` is weak property, so retain this.
+        delegate
+    };
+
     run_message_loop();
 
     let window = window.lock().expect("Failed to lock window");
@@ -191,11 +306,23 @@ fn main() {
 
 #[cfg(target_os = "macos")]
 mod application {
-    use std::cell::Cell;
+    use std::{
+        cell::Cell,
+        sync::{Arc, Mutex},
+    };
 
     use cef::application_mac::{CefAppProtocol, CrAppControlProtocol, CrAppProtocol};
-    use objc2::{DefinedClass, define_class, runtime::Bool};
-    use objc2_app_kit::NSApplication;
+    use objc2::{
+        DefinedClass, MainThreadMarker, MainThreadOnly, define_class, extern_methods, msg_send,
+        rc::Retained,
+        runtime::{AnyObject, Bool, NSObject, NSObjectProtocol},
+    };
+    use objc2_app_kit::{
+        NSApp, NSApplication, NSApplicationDelegate, NSApplicationTerminateReply, NSEvent,
+    };
+    use objc2_foundation::{NSBundle, ns_string};
+
+    use crate::SimpleHandler;
 
     /// Instance variables of `SimpleApplication`.
     pub struct SimpleApplicationIvars {
@@ -226,5 +353,113 @@ mod application {
         }
 
         unsafe impl CefAppProtocol for SimpleApplication {}
+
+        impl SimpleApplication {
+            #[unsafe(method(sendEvent:))]
+            fn send_event(&self, event: &NSEvent) {
+                cef::application_mac::scoped_sending_event::<SimpleApplication, _>(|| {
+                    let _: () = unsafe { msg_send![super(self), sendEvent: event] };
+                });
+            }
+
+            #[unsafe(method(terminate:))]
+            fn terminate(&self, _sender: &AnyObject) {
+                let delegate = self.delegate().unwrap();
+                let delegate: &AnyObject = delegate.as_ref();
+                let delegate: &SimpleAppDelegate = delegate.downcast_ref().unwrap();
+
+                delegate.try_to_terminate_application(self);
+            }
+        }
     );
+
+    /// Instance variables of `SimpleAppDelegateIvars`.
+    pub struct SimpleAppDelegateIvars {
+        simple_handler: Arc<Mutex<SimpleHandler>>,
+    }
+
+    define_class!(
+        /// Receives notifications from the application.
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[ivars = SimpleAppDelegateIvars]
+        pub struct SimpleAppDelegate;
+
+        unsafe impl NSObjectProtocol for SimpleAppDelegate {}
+
+        impl SimpleAppDelegate {
+            #[unsafe(method(createApplication:))]
+            fn __create_application(&self, _app: &NSApplication) {
+                let mtm = MainThreadMarker::new().unwrap();
+
+                unsafe {
+                    let _: Bool = msg_send![
+                        &NSBundle::mainBundle(),
+                        loadNibNamed: ns_string!("MainMenu"),
+                        owner: &*NSApp(mtm),
+                        topLevelObjects: std::ptr::null_mut::<*const AnyObject>()
+                    ];
+                };
+            }
+
+            #[unsafe(method(tryToTerminateApplication:))]
+            fn __try_to_terminate_application(&self, _app: &NSApplication) {
+                let handler = self.ivars().simple_handler.lock().unwrap();
+
+                if !handler.is_closing {
+                    handler.close_all_browsers(false);
+                }
+            }
+        }
+
+        #[allow(non_snake_case)]
+        unsafe impl NSApplicationDelegate for SimpleAppDelegate {
+            #[unsafe(method(applicationShouldTerminate:))]
+            fn applicationShouldTerminate(
+                &self,
+                _sender: &NSApplication,
+            ) -> NSApplicationTerminateReply {
+                NSApplicationTerminateReply::TerminateNow
+            }
+
+            #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
+            fn applicationShouldHandleReopen_hasVisibleWindows(
+                &self,
+                _sender: &NSApplication,
+                _has_visible_windows: bool,
+            ) -> bool {
+                let mut handler = self.ivars().simple_handler.lock().unwrap();
+
+                if handler.is_closing {
+                    handler.show_main_window();
+                };
+
+                false
+            }
+
+            #[unsafe(method(applicationSupportsSecureRestorableState:))]
+            fn applicationSupportsSecureRestorableState(&self, _app: &NSApplication) -> bool {
+                true
+            }
+        }
+    );
+
+    impl SimpleAppDelegate {
+        pub fn new(
+            mtm: objc2::MainThreadMarker,
+            simple_handler: Arc<Mutex<SimpleHandler>>,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(SimpleAppDelegateIvars { simple_handler });
+
+            unsafe { msg_send![super(this), init] }
+        }
+
+        extern_methods!(
+            #[unsafe(method(createApplication:))]
+            fn create_application(&self, app: &NSApplication);
+
+            #[unsafe(method(tryToTerminateApplication:))]
+            fn try_to_terminate_application(&self, app: &NSApplication);
+        );
+    }
 }
