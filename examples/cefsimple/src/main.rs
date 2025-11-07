@@ -1,4 +1,6 @@
 mod simple_handler;
+#[cfg(target_os = "macos")]
+mod simple_handler_mac;
 
 use cef::{args::Args, rc::*, *};
 use std::sync::{Arc, Mutex};
@@ -312,15 +314,9 @@ mod application {
     };
 
     use cef::application_mac::{CefAppProtocol, CrAppControlProtocol, CrAppProtocol};
-    use objc2::{
-        DefinedClass, MainThreadMarker, MainThreadOnly, define_class, extern_methods, msg_send,
-        rc::Retained,
-        runtime::{AnyObject, Bool, NSObject, NSObjectProtocol},
-    };
-    use objc2_app_kit::{
-        NSApp, NSApplication, NSApplicationDelegate, NSApplicationTerminateReply, NSEvent,
-    };
-    use objc2_foundation::{NSBundle, ns_string};
+    use objc2::{rc::Retained, runtime::*, *};
+    use objc2_app_kit::*;
+    use objc2_foundation::*;
 
     use crate::SimpleHandler;
 
