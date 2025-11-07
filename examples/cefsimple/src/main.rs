@@ -406,15 +406,18 @@ mod application {
                     handler.close_all_browsers(false);
                 }
             }
+        }
 
+        #[allow(non_snake_case)]
+        unsafe impl NSUserInterfaceValidations for SimpleAppDelegate {
             #[unsafe(method(validateUserInterfaceItem:))]
-            fn __validate_user_interface_item(
+            fn validateUserInterfaceItem(
                 &self,
-                item: &ProtocolObject<dyn NSValidatedUserInterfaceItem>
-            ) -> Bool {
+                item: &ProtocolObject<dyn NSValidatedUserInterfaceItem>,
+            ) -> bool {
                 const IDC_FIND: u32 = 37000;
 
-                Bool::new(item.tag() as u32 == IDC_FIND)
+                item.tag() as u32 == IDC_FIND
             }
         }
 
