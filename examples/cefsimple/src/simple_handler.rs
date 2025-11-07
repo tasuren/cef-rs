@@ -1,6 +1,19 @@
 use base64::prelude::*;
 use cef::*;
 
+#[cfg(target_os = "macos")]
+use crate::simple_handler_mac::*;
+
+#[cfg(not(target_os = "macos"))]
+pub fn platform_title_change(browser: &Browser, title: &CefString) {
+    unimplemented!()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_show_window(&self, _browser: &Browser) {
+    unimplemented!()
+}
+
 pub struct SimpleHandler {
     pub is_alloy_style: bool,
     pub is_closing: bool,
@@ -39,12 +52,13 @@ impl SimpleHandler {
     pub fn on_title_change(&self, browser: Option<&mut Browser>, title: Option<&CefString>) {
         required_ui_thread();
 
-        if let Some(browser_view) = browser_view_get_for_browser(browser) {
+        let browser = browser.unwrap();
+        if let Some(browser_view) = browser_view_get_for_browser(Some(browser)) {
             if let Some(window) = browser_view.window() {
                 window.set_title(title);
             }
         } else if self.is_alloy_style {
-            todo!("Implement `PlatformTitleChange`")
+            platform_title_change(browser, title.unwrap());
         }
     }
 
@@ -147,27 +161,8 @@ impl SimpleHandler {
                 window.show();
             }
         } else if self.is_alloy_style {
-            self.platform_show_window(self.browser_list.first().unwrap());
+            platform_show_window(self.browser_list.first().unwrap());
         };
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    fn platform_show_window(&self, _browser: &Browser) {
-        unimplemented!()
-    }
-
-    #[cfg(target_os = "macos")]
-    fn platform_show_window(&self, browser: &Browser) {
-        use objc2::rc::Retained;
-        use objc2_app_kit::{NSView, NSWindow};
-
-        fn get_ns_window_for_browser(browser: &Browser) -> Retained<NSWindow> {
-            let ptr = browser.host().unwrap().window_handle() as *mut NSView;
-            unsafe { Retained::retain(ptr).unwrap().window().unwrap() }
-        }
-
-        let window = get_ns_window_for_browser(browser);
-        window.makeKeyAndOrderFront(Some(window.as_ref()));
     }
 
     pub fn close_all_browsers(&self, force_close: bool) {
