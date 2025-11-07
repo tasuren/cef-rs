@@ -173,9 +173,9 @@
                             <menuItem title="Find" id="218">
                                 <menu key="submenu" title="Find" id="220">
                                     <items>
-                                        <menuItem title="Find…" tag="1" keyEquivalent="f" id="209">
+                                        <menuItem title="Find…" tag="37000" keyEquivalent="f" id="209">
                                             <connections>
-                                                <action selector="performFindPanelAction:" target="-1" id="241"/>
+                                                <action selector="commandDispatch:" target="-1" id="241"/>
                                             </connections>
                                         </menuItem>
                                         <menuItem title="Find Next" tag="2" keyEquivalent="g" id="208"/>

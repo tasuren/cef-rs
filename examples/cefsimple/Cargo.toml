@@ -28,5 +28,5 @@ percent-encoding.workspace = true
 plist.workspace = true
 serde.workspace = true
 objc2.workspace = true
-objc2-app-kit = { workspace = true, features = ["NSApplication", "NSResponder", "NSView", "NSWindow", "NSEvent"] }
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSUserInterfaceValidation"] }
 objc2-foundation = { workspace = true, features = ["NSThread", "NSBundle", "NSString"] }

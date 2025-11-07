@@ -406,6 +406,16 @@ mod application {
                     handler.close_all_browsers(false);
                 }
             }
+
+            #[unsafe(method(validateUserInterfaceItem:))]
+            fn __validate_user_interface_item(
+                &self,
+                item: &ProtocolObject<dyn NSValidatedUserInterfaceItem>
+            ) -> Bool {
+                const IDC_FIND: u32 = 37000;
+
+                Bool::new(item.tag() as u32 == IDC_FIND)
+            }
         }
 
         #[allow(non_snake_case)]
